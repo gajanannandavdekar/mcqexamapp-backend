@@ -1,0 +1,12 @@
+name: Keep Render Backend Warm
+on:
+  schedule:
+    - cron: '*/14 6-23 * * *'
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping health endpoint
+        run: curl -f https://mcqexamapp-backend.onrender.com/api/health

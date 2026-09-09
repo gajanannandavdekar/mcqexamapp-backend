@@ -151,7 +151,7 @@ public class AdminController {
  
 
     @PostMapping("/tests/{testKey}/questions/upload-csv")
-    public ResponseEntity<?> uploadQuestionsCsv(@PathVariable String testKey, @RequestParam("file12") MultipartFile file) {
+    public ResponseEntity<?> uploadQuestionsCsv(@PathVariable String testKey, @RequestParam("file") MultipartFile file) {
         MockTest test = mockTestRepository.findByTestKey(testKey).orElse(null);
         if (test == null) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "Test not found"));

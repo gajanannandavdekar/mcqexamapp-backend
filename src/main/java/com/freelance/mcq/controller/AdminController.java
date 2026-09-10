@@ -343,4 +343,29 @@ public class AdminController {
         return ResponseEntity.ok(Map.of("message", "Test published and notifications sent", "notifiedCount", tokens.size()));
     }
     
+    @GetMapping("/subjects/{subjectKey}/tests")
+    public ResponseEntity<?> listAllTestsForSubject(@PathVariable String subjectKey) {
+        Subject subject = subjectRepository.findBySubjectKey(subjectKey).orElse(null);
+        if (subject == null) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "Subject not found"));
+        }
+        List<Map<String, Object>> tests = mockTestRepository.findBySubjectId(subject.getId()).stream()
+                .map(t -> {
+                    Map<String, Object> m = new java.util.LinkedHashMap<>();
+                    m.put("id", t.getId());
+                    m.put("testKey", t.getTestKey());
+                    m.put("title", t.getTitle());
+                    m.put("questionsCount", t.getQuestionsCount());
+                    m.put("durationMinutes", t.getDurationMinutes());
+                    m.put("isPremium", t.isPremium());
+                    m.put("isPublished", t.isPublished());
+                    return m;
+                })
+                .toList();
+        return ResponseEntity.ok(tests);
+    }
+    
+    
+    
+    
 }

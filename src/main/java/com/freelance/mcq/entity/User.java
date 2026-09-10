@@ -47,7 +47,10 @@ public class User {
     @Column(name = "reset_otp_expires_at")
     private OffsetDateTime resetOtpExpiresAt;
     
-    public enum Role { USER, ADMIN }
+    @Column(name = "premium_expires_at")
+    private OffsetDateTime premiumExpiresAt;
+    
+    public enum Role { USER, ADMIN,SUPER_ADMIN }
     
     
     public User() {
@@ -59,6 +62,13 @@ public class User {
         this.fullName = fullName;
         this.authProvider = authProvider;
         this.isPremium = false;
+    }
+    
+    
+    public boolean isPremiumActive() {
+        if (!isPremium) return false;
+        if (premiumExpiresAt == null) return true;
+        return premiumExpiresAt.isAfter(OffsetDateTime.now());
     }
 
     @PrePersist
@@ -106,6 +116,23 @@ public class User {
     public void setResetOtpHash(String resetOtpHash) { this.resetOtpHash = resetOtpHash; }
     public OffsetDateTime getResetOtpExpiresAt() { return resetOtpExpiresAt; }
     public void setResetOtpExpiresAt(OffsetDateTime resetOtpExpiresAt) { this.resetOtpExpiresAt = resetOtpExpiresAt; }
+
+	public OffsetDateTime getPremiumExpiresAt() {
+		return premiumExpiresAt;
+	}
+
+	public void setPremiumExpiresAt(OffsetDateTime premiumExpiresAt) {
+		this.premiumExpiresAt = premiumExpiresAt;
+	}
+
+	public void setCreatedAt(OffsetDateTime createdAt) {
+		this.createdAt = createdAt;
+	}
+
+	public void setUpdatedAt(OffsetDateTime updatedAt) {
+		this.updatedAt = updatedAt;
+	}
+    
     
     
 }

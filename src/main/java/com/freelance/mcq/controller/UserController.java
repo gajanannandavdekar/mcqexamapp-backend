@@ -47,16 +47,16 @@ public class UserController {
             return ResponseEntity.badRequest().body(Map.of("error", "Name cannot be empty"));
         }
 
-        User fresh = userRepository.findById(user.getId()).orElseThrow();
-        fresh.setFullName(req.fullName().trim());
-        userRepository.save(fresh);
+        //User fresh = userRepository.findById(user.getId()).orElseThrow();
+        //fresh.setFullName(req.fullName().trim());
+        //userRepository.save(fresh);
 
         return ResponseEntity.ok(Map.of(
-                "id", fresh.getId(),
-                "email", fresh.getEmail(),
-                "fullName", fresh.getFullName(),
-                "isPremium", fresh.isPremium(),
-                "role", fresh.getRole().name()
+                "id", user.getId(),
+                "email", user.getEmail(),
+                "fullName", user.getFullName() != null ? user.getFullName() : "",
+                "isPremium", user.isPremiumActive(),
+                "role", user.getRole().name()
         ));
     }
 

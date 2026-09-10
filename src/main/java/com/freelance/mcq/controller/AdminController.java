@@ -1,28 +1,44 @@
 package com.freelance.mcq.controller;
 
-import com.freelance.mcq.dto.*;
-import com.freelance.mcq.entity.MockTest;
-import com.freelance.mcq.entity.Question;
-import com.freelance.mcq.entity.Subject;
-import com.freelance.mcq.repository.MockTestRepository;
-import com.freelance.mcq.repository.QuestionRepository;
-import com.freelance.mcq.repository.SubjectRepository;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
-import org.springframework.security.access.prepost.PreAuthorize;
-import org.springframework.web.bind.annotation.*;
-
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
+import java.time.OffsetDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+
 //Add these imports:
 import org.apache.commons.csv.CSVFormat;
 import org.apache.commons.csv.CSVParser;
 import org.apache.commons.csv.CSVRecord;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
-import java.io.InputStreamReader;
-import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
+
+import com.freelance.mcq.dto.BulkCreateQuestionsRequest;
+import com.freelance.mcq.dto.CreateSubjectRequest;
+import com.freelance.mcq.dto.CreateTestRequest;
+import com.freelance.mcq.dto.GrantPremiumRequest;
+import com.freelance.mcq.dto.UserSummary;
+import com.freelance.mcq.entity.MockTest;
+import com.freelance.mcq.entity.Question;
+import com.freelance.mcq.entity.Subject;
+import com.freelance.mcq.entity.User;
+import com.freelance.mcq.repository.MockTestRepository;
+import com.freelance.mcq.repository.QuestionRepository;
+import com.freelance.mcq.repository.SubjectRepository;
+import com.freelance.mcq.repository.UserRepository;
 
 
 
@@ -34,12 +50,14 @@ public class AdminController {
     private final SubjectRepository subjectRepository;
     private final MockTestRepository mockTestRepository;
     private final QuestionRepository questionRepository;
+    private final UserRepository userRepository;
 
     public AdminController(SubjectRepository subjectRepository, MockTestRepository mockTestRepository,
-                            QuestionRepository questionRepository) {
+                            QuestionRepository questionRepository,UserRepository userRepository) {
         this.subjectRepository = subjectRepository;
         this.mockTestRepository = mockTestRepository;
         this.questionRepository = questionRepository;
+        this.userRepository=userRepository;
     }
 
     // ---------- SUBJECTS ----------
@@ -214,6 +232,63 @@ public class AdminController {
                 "errors", errors
         ));
     }
+    
+    
+    
+
+
+    @GetMapping("/users")
+    public List<UserSummary> searchUsers(@RequestParam(required = false, defaultValue = "") String search) {
+        return userRepository.searchUsers(search).stream()
+                .map(u -> new UserSummary(
+                        u.getId(), u.getEmail(), u.getFullName() != null ? u.getFullName() : "",
+                        u.isPremiumActive(),
+                        u.isPremium() && u.getPremiumExpiresAt() == null,
+                        u.getPremiumExpiresAt() != null ? u.getPremiumExpiresAt().toString() : null,
+                        u.getRole().name()
+                ))
+                .toList();
+    }
+
+    @PostMapping("/users/{userId}/grant-premium")
+    public ResponseEntity<?> grantPremium(@PathVariable UUID userId, @RequestBody GrantPremiumRequest req) {
+        User user = userRepository.findById(userId).orElse(null);
+        if (user == null) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "User not found"));
+        }
+
+        if (req.durationDays() != null && req.durationDays() <= 0) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("error", "durationDays must be positive"));
+        }
+
+        // Extend from whichever is later: their existing active expiry, or right now.
+        // Prevents a new grant from accidentally shortening someone's remaining access.
+        OffsetDateTime base = (user.getPremiumExpiresAt() != null && user.getPremiumExpiresAt().isAfter(OffsetDateTime.now()))
+                ? user.getPremiumExpiresAt()
+                : OffsetDateTime.now();
+
+        user.setPremium(true);
+        user.setPremiumExpiresAt(req.durationDays() != null ? base.plusDays(req.durationDays()) : null);
+        userRepository.save(user);
+
+        return ResponseEntity.ok(Map.of(
+                "message", "Premium granted",
+                "premiumExpiresAt", user.getPremiumExpiresAt() != null ? user.getPremiumExpiresAt().toString() : "forever"
+        ));
+    }
+
+    @PostMapping("/users/{userId}/revoke-premium")
+    public ResponseEntity<?> revokePremium(@PathVariable UUID userId) {
+        User user = userRepository.findById(userId).orElse(null);
+        if (user == null) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "User not found"));
+        }
+        user.setPremium(false);
+        user.setPremiumExpiresAt(null);
+        userRepository.save(user);
+        return ResponseEntity.ok(Map.of("message", "Premium revoked"));
+    }
+    
     
     
     

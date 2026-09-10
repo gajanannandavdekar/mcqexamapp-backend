@@ -32,7 +32,7 @@ public class AttemptService {
     	MockTest test = mockTestRepository.findByTestKeyWithSubject(request.testKey())
     	        .orElseThrow(() -> new NoSuchElementException("Test not found"));
 
-        if (test.isPremium() && !user.isPremium()) {
+        if (test.isPremium() && !user.isPremiumActive()) {
             throw new SecurityException("This test requires a premium subscription");
         }
 

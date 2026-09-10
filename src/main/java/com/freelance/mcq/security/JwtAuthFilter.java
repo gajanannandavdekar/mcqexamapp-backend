@@ -54,12 +54,17 @@ public class JwtAuthFilter extends OncePerRequestFilter {
                 if (user != null) {
                 	List<SimpleGrantedAuthority> authorities = new java.util.ArrayList<>();
                 	authorities.add(new SimpleGrantedAuthority("ROLE_USER"));
-                	if (user.isPremium()) {
+                	if (user.isPremiumActive()) {
                 	    authorities.add(new SimpleGrantedAuthority("ROLE_PREMIUM"));
                 	}
-                	if (user.getRole() == User.Role.ADMIN) {
+                	if (user.getRole() == User.Role.ADMIN || user.getRole() == User.Role.SUPER_ADMIN) {
                 	    authorities.add(new SimpleGrantedAuthority("ROLE_ADMIN"));
                 	}
+                	
+                	if (user.getRole() == User.Role.SUPER_ADMIN) {
+                	    authorities.add(new SimpleGrantedAuthority("ROLE_SUPER_ADMIN"));
+                	}
+                	
 
                 	var authToken = new UsernamePasswordAuthenticationToken(user, null, authorities);
                     authToken.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));

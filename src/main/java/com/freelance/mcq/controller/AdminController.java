@@ -15,6 +15,7 @@ import org.apache.commons.csv.CSVRecord;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -31,10 +32,12 @@ import com.freelance.mcq.dto.CreateSubjectRequest;
 import com.freelance.mcq.dto.CreateTestRequest;
 import com.freelance.mcq.dto.GrantPremiumRequest;
 import com.freelance.mcq.dto.UserSummary;
+import com.freelance.mcq.entity.AdminActionLog;
 import com.freelance.mcq.entity.MockTest;
 import com.freelance.mcq.entity.Question;
 import com.freelance.mcq.entity.Subject;
 import com.freelance.mcq.entity.User;
+import com.freelance.mcq.repository.AdminActionLogRepository;
 import com.freelance.mcq.repository.MockTestRepository;
 import com.freelance.mcq.repository.QuestionRepository;
 import com.freelance.mcq.repository.SubjectRepository;
@@ -51,13 +54,15 @@ public class AdminController {
     private final MockTestRepository mockTestRepository;
     private final QuestionRepository questionRepository;
     private final UserRepository userRepository;
+    private final AdminActionLogRepository adminActionLogRepository;
 
     public AdminController(SubjectRepository subjectRepository, MockTestRepository mockTestRepository,
-                            QuestionRepository questionRepository,UserRepository userRepository) {
+                            QuestionRepository questionRepository,UserRepository userRepository,AdminActionLogRepository adminActionLogRepository) {
         this.subjectRepository = subjectRepository;
         this.mockTestRepository = mockTestRepository;
         this.questionRepository = questionRepository;
         this.userRepository=userRepository;
+        this.adminActionLogRepository=adminActionLogRepository;
     }
 
     // ---------- SUBJECTS ----------
@@ -250,8 +255,10 @@ public class AdminController {
                 .toList();
     }
 
+
     @PostMapping("/users/{userId}/grant-premium")
-    public ResponseEntity<?> grantPremium(@PathVariable UUID userId, @RequestBody GrantPremiumRequest req) {
+    public ResponseEntity<?> grantPremium(Authentication auth, @PathVariable UUID userId, @RequestBody GrantPremiumRequest req) {
+        User actor = (User) auth.getPrincipal();
         User user = userRepository.findById(userId).orElse(null);
         if (user == null) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "User not found"));
@@ -261,8 +268,6 @@ public class AdminController {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("error", "durationDays must be positive"));
         }
 
-        // Extend from whichever is later: their existing active expiry, or right now.
-        // Prevents a new grant from accidentally shortening someone's remaining access.
         OffsetDateTime base = (user.getPremiumExpiresAt() != null && user.getPremiumExpiresAt().isAfter(OffsetDateTime.now()))
                 ? user.getPremiumExpiresAt()
                 : OffsetDateTime.now();
@@ -271,6 +276,13 @@ public class AdminController {
         user.setPremiumExpiresAt(req.durationDays() != null ? base.plusDays(req.durationDays()) : null);
         userRepository.save(user);
 
+        String detail = req.durationDays() != null
+                ? "Granted " + req.durationDays() + " days, new expiry: " + user.getPremiumExpiresAt()
+                : "Granted premium forever";
+        adminActionLogRepository.save(new AdminActionLog(
+                actor.getId(), actor.getEmail(), user.getId(), user.getEmail(), "GRANT_PREMIUM", detail
+        ));
+
         return ResponseEntity.ok(Map.of(
                 "message", "Premium granted",
                 "premiumExpiresAt", user.getPremiumExpiresAt() != null ? user.getPremiumExpiresAt().toString() : "forever"
@@ -278,7 +290,8 @@ public class AdminController {
     }
 
     @PostMapping("/users/{userId}/revoke-premium")
-    public ResponseEntity<?> revokePremium(@PathVariable UUID userId) {
+    public ResponseEntity<?> revokePremium(Authentication auth, @PathVariable UUID userId) {
+        User actor = (User) auth.getPrincipal();
         User user = userRepository.findById(userId).orElse(null);
         if (user == null) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "User not found"));
@@ -286,9 +299,13 @@ public class AdminController {
         user.setPremium(false);
         user.setPremiumExpiresAt(null);
         userRepository.save(user);
+
+        adminActionLogRepository.save(new AdminActionLog(
+                actor.getId(), actor.getEmail(), user.getId(), user.getEmail(), "REVOKE_PREMIUM", null
+        ));
+
         return ResponseEntity.ok(Map.of("message", "Premium revoked"));
-    }
-    
+    }   
     
     
     

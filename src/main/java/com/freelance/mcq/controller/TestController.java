@@ -29,7 +29,7 @@ public class TestController {
     @PreAuthorize("isAuthenticated()")
     public ResponseEntity<?> getQuestions(@PathVariable String testKey) {
         MockTest test = mockTestRepository.findByTestKey(testKey).orElse(null);
-        if (test == null) {
+        if (test == null || !test.isPublished()) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "Test not found"));
         }
 

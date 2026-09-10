@@ -38,10 +38,12 @@ import com.freelance.mcq.entity.Question;
 import com.freelance.mcq.entity.Subject;
 import com.freelance.mcq.entity.User;
 import com.freelance.mcq.repository.AdminActionLogRepository;
+import com.freelance.mcq.repository.DevicePushTokenRepository;
 import com.freelance.mcq.repository.MockTestRepository;
 import com.freelance.mcq.repository.QuestionRepository;
 import com.freelance.mcq.repository.SubjectRepository;
 import com.freelance.mcq.repository.UserRepository;
+import com.freelance.mcq.service.NotificationService;
 
 
 
@@ -55,14 +57,19 @@ public class AdminController {
     private final QuestionRepository questionRepository;
     private final UserRepository userRepository;
     private final AdminActionLogRepository adminActionLogRepository;
+    private final DevicePushTokenRepository devicePushTokenRepository;
+    private final NotificationService notificationService;
 
     public AdminController(SubjectRepository subjectRepository, MockTestRepository mockTestRepository,
-                            QuestionRepository questionRepository,UserRepository userRepository,AdminActionLogRepository adminActionLogRepository) {
+                            QuestionRepository questionRepository,UserRepository userRepository,AdminActionLogRepository adminActionLogRepository,DevicePushTokenRepository devicePushTokenRepository,NotificationService notificationService) {
         this.subjectRepository = subjectRepository;
         this.mockTestRepository = mockTestRepository;
         this.questionRepository = questionRepository;
         this.userRepository=userRepository;
         this.adminActionLogRepository=adminActionLogRepository;
+        this.devicePushTokenRepository=devicePushTokenRepository;
+        this.notificationService=notificationService;
+        
     }
 
     // ---------- SUBJECTS ----------
@@ -307,6 +314,33 @@ public class AdminController {
         return ResponseEntity.ok(Map.of("message", "Premium revoked"));
     }   
     
-    
+
+    @PostMapping("/tests/{testKey}/publish")
+    public ResponseEntity<?> publishTest(@PathVariable String testKey) {
+        MockTest test = mockTestRepository.findByTestKeyWithSubject(testKey).orElse(null);
+        if (test == null) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "Test not found"));
+        }
+        if (test.isPublished()) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("error", "Test is already published"));
+        }
+        if (questionRepository.findByTestId(test.getId()).isEmpty()) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("error", "Cannot publish a test with no questions"));
+        }
+
+        test.setPublished(true);
+        mockTestRepository.save(test);
+
+        List<String> tokens = test.isPremium()
+                ? devicePushTokenRepository.findAllPremiumUserTokens()
+                : devicePushTokenRepository.findAllTokens();
+
+        String title = test.isPremium() ? "New Premium Test Available!" : "New Test Available!";
+        String body = test.getTitle() + " in " + test.getSubject().getTitle() + " is now live.";
+
+        notificationService.sendToTokens(tokens, title, body);
+
+        return ResponseEntity.ok(Map.of("message", "Test published and notifications sent", "notifiedCount", tokens.size()));
+    }
     
 }

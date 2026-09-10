@@ -2,6 +2,7 @@ package com.freelance.mcq.controller;
 
 import com.freelance.mcq.dto.SubjectResponse;
 import com.freelance.mcq.dto.TestResponse;
+import com.freelance.mcq.entity.MockTest;
 import com.freelance.mcq.entity.Subject;
 import com.freelance.mcq.repository.MockTestRepository;
 import com.freelance.mcq.repository.SubjectRepository;
@@ -29,13 +30,13 @@ public class SubjectController {
     @PreAuthorize("isAuthenticated()")
     public List<SubjectResponse> listSubjects() {
         return subjectRepository.findAll().stream()
-                .map(s -> new SubjectResponse(
-                        s.getId(),
-                        s.getSubjectKey(),
-                        s.getTitle(),
-                        s.getIcon(),
-                        (int) mockTestRepository.countBySubjectId(s.getId())
-                ))
+        		.map(s -> new SubjectResponse(
+        		        s.getId(),
+        		        s.getSubjectKey(),
+        		        s.getTitle(),
+        		        s.getIcon(),
+        		        (int) mockTestRepository.countBySubjectIdAndIsPublishedTrue(s.getId())
+        		))
                 .toList();
     }
 
@@ -48,6 +49,7 @@ public class SubjectController {
         }
 
         List<TestResponse> tests = mockTestRepository.findBySubjectId(subject.getId()).stream()
+                .filter(MockTest::isPublished)
                 .map(t -> new TestResponse(t.getId(), t.getTestKey(), t.getTitle(), t.getQuestionsCount(), t.getDurationMinutes(), t.isPremium()))
                 .toList();
 

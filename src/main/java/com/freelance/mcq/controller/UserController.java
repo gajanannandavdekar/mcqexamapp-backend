@@ -1,8 +1,11 @@
 package com.freelance.mcq.controller;
 
 import com.freelance.mcq.dto.ChangePasswordRequest;
+import com.freelance.mcq.dto.RegisterTokenRequest;
 import com.freelance.mcq.dto.UpdateProfileRequest;
+import com.freelance.mcq.entity.DevicePushToken;
 import com.freelance.mcq.entity.User;
+import com.freelance.mcq.repository.DevicePushTokenRepository;
 import com.freelance.mcq.repository.UserRepository;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -19,10 +22,13 @@ public class UserController {
 
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
+    private final DevicePushTokenRepository devicePushTokenRepository;
 
-    public UserController(UserRepository userRepository, PasswordEncoder passwordEncoder) {
+
+    public UserController(UserRepository userRepository, PasswordEncoder passwordEncoder,DevicePushTokenRepository devicePushTokenRepository) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
+        this.devicePushTokenRepository=devicePushTokenRepository;
     }
 
     @GetMapping("/me")
@@ -89,6 +95,27 @@ public class UserController {
         return ResponseEntity.ok(Map.of("message", "Password changed successfully"));
     }
 
+    
+
+    @PostMapping("/me/push-token")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<?> registerPushToken(Authentication auth, @RequestBody RegisterTokenRequest req) {
+        User user = (User) auth.getPrincipal();
+
+        DevicePushToken existing = devicePushTokenRepository.findByPushToken(req.pushToken()).orElse(null);
+        if (existing != null) {
+            existing.setLastUsedAt(java.time.OffsetDateTime.now());
+            devicePushTokenRepository.save(existing);
+        } else {
+            User freshUser = userRepository.findById(user.getId()).orElseThrow();
+            devicePushTokenRepository.save(new DevicePushToken(freshUser, req.pushToken(), req.platform()));
+        }
+
+        return ResponseEntity.ok(Map.of("message", "Token registered"));
+    }
+    
+    
+    
     private String validatePasswordStrength(String password) {
         if (password == null || password.length() < 8) {
             return "Password must be at least 8 characters";

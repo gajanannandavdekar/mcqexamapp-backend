@@ -40,6 +40,9 @@ public class MockTest {
     @Column(name = "created_at", nullable = false, updatable = false)
     private OffsetDateTime createdAt;
 
+    @Column(name = "is_published", nullable = false)
+    private boolean isPublished = false;
+    
     public MockTest() {
     }
 
@@ -72,4 +75,7 @@ public class MockTest {
     public void setPremium(boolean premium) { isPremium = premium; }
     public List<Question> getQuestions() { return questions; }
     public OffsetDateTime getCreatedAt() { return createdAt; }
+    public boolean isPublished() { return isPublished; }
+    public void setPublished(boolean published) { isPublished = published; }
+    
 }

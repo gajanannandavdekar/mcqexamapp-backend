@@ -98,7 +98,7 @@ public class PaymentController {
     public ResponseEntity<?> verifyPayment(Authentication auth, @RequestBody VerifyPaymentRequest req) {
         User authUser = (User) auth.getPrincipal();
 
-        PaymentOrder order = paymentOrderRepository.findByRazorpayOrderId(req.razorpayOrderId()).orElse(null);
+        PaymentOrder order = paymentOrderRepository.findByRazorpayOrderIdWithDetails(req.razorpayOrderId()).orElse(null);
         if (order == null || !order.getUser().getId().equals(authUser.getId())) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "Order not found"));
         }

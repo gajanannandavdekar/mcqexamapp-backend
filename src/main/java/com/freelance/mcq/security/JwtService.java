@@ -27,21 +27,23 @@ public class JwtService {
         return Keys.hmacShaKeyFor(secret.getBytes());
     }
 
-    public String generateAccessToken(UUID userId, String email) {
+    public String generateAccessToken(UUID userId, String email,String seesionId) {
         return Jwts.builder()
                 .subject(userId.toString())
                 .claim("email", email)
                 .claim("type", "access")
+                .claim("sid", seesionId)
                 .issuedAt(new Date())
                 .expiration(new Date(System.currentTimeMillis() + accessTokenExpirationMs))
                 .signWith(key())
                 .compact();
     }
 
-    public String generateRefreshToken(UUID userId) {
+    public String generateRefreshToken(UUID userId,String sessionId) {
         return Jwts.builder()
                 .subject(userId.toString())
                 .claim("type", "refresh")
+                .claim("sid",sessionId)
                 .issuedAt(new Date())
                 .expiration(new Date(System.currentTimeMillis() + refreshTokenExpirationMs))
                 .signWith(key())

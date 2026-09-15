@@ -43,7 +43,12 @@ public class JwtAuthFilter extends OncePerRequestFilter {
         }
 
         String token = authHeader.substring(7);
-
+        
+        
+        
+        
+        
+        
         if (jwtService.isTokenValid(token)) {
             Claims claims = jwtService.parseClaims(token);
 
@@ -52,21 +57,23 @@ public class JwtAuthFilter extends OncePerRequestFilter {
                 User user = userRepository.findById(userId).orElse(null);
 
                 if (user != null) {
-                	List<SimpleGrantedAuthority> authorities = new java.util.ArrayList<>();
-                	authorities.add(new SimpleGrantedAuthority("ROLE_USER"));
-                	if (user.isPremiumActive()) {
-                	    authorities.add(new SimpleGrantedAuthority("ROLE_PREMIUM"));
-                	}
-                	if (user.getRole() == User.Role.ADMIN || user.getRole() == User.Role.SUPER_ADMIN) {
-                	    authorities.add(new SimpleGrantedAuthority("ROLE_ADMIN"));
-                	}
-                	
-                	if (user.getRole() == User.Role.SUPER_ADMIN) {
-                	    authorities.add(new SimpleGrantedAuthority("ROLE_SUPER_ADMIN"));
-                	}
-                	
+                    String tokenSessionId = claims.get("sid", String.class);
+                    if (tokenSessionId == null || !tokenSessionId.equals(user.getCurrentSessionId())) {
+                        response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+                        response.setContentType("application/json");
+                        response.getWriter().write(
+                            "{\"error\":\"SESSION_INVALIDATED\",\"message\":\"Your account was signed in on another device.\"}"
+                        );
+                        return;
+                    }
 
-                	var authToken = new UsernamePasswordAuthenticationToken(user, null, authorities);
+                    List<SimpleGrantedAuthority> authorities = new java.util.ArrayList<>();
+                    authorities.add(new SimpleGrantedAuthority("ROLE_USER"));
+                    if (user.isPremiumActive()) authorities.add(new SimpleGrantedAuthority("ROLE_PREMIUM"));
+                    if (user.getRole() == User.Role.ADMIN || user.getRole() == User.Role.SUPER_ADMIN) authorities.add(new SimpleGrantedAuthority("ROLE_ADMIN"));
+                    if (user.getRole() == User.Role.SUPER_ADMIN) authorities.add(new SimpleGrantedAuthority("ROLE_SUPER_ADMIN"));
+
+                    var authToken = new UsernamePasswordAuthenticationToken(user, null, authorities);
                     authToken.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
                     SecurityContextHolder.getContext().setAuthentication(authToken);
                 }

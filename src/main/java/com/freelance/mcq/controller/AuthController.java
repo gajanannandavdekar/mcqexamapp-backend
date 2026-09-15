@@ -4,6 +4,7 @@ package com.freelance.mcq.controller;
 import com.freelance.mcq.dto.AuthResponse;
 import com.freelance.mcq.dto.ForgotPasswordRequest;
 import com.freelance.mcq.dto.LoginRequest;
+import com.freelance.mcq.dto.LoginRequestWithDevice;
 import com.freelance.mcq.dto.RegisterRequest;
 import com.freelance.mcq.dto.ResetPasswordRequest;
 import com.freelance.mcq.entity.User;
@@ -60,11 +61,11 @@ public class AuthController {
 
         userRepository.save(user);
 
-        return ResponseEntity.ok(buildAuthResponse(user));
+        return ResponseEntity.ok(buildAuthResponse(user,req.deviceName()));
     }
 
     @PostMapping("/login")
-    public ResponseEntity<?> login(@Valid @RequestBody LoginRequest req) {
+    public ResponseEntity<?> login(@Valid @RequestBody LoginRequestWithDevice req) {
         User user = userRepository.findByEmail(req.email()).orElse(null);
 
         if (user == null || user.getPasswordHash() == null ||
@@ -73,7 +74,30 @@ public class AuthController {
                     .body(Map.of("error", "Invalid email or password"));
         }
 
-        return ResponseEntity.ok(buildAuthResponse(user));
+        if (user.getCurrentSessionId() != null) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
+                    "error", "ALREADY_LOGGED_IN",
+                    "message", "This account is already signed in on another device.",
+                    "deviceName", user.getCurrentSessionDevice() != null ? user.getCurrentSessionDevice() : "Unknown device",
+                    "lastActive", user.getCurrentSessionLastActive() != null ? user.getCurrentSessionLastActive().toString() : null
+            ));
+        }
+
+        return ResponseEntity.ok(buildAuthResponse(user, req.deviceName()));
+    }
+
+    @PostMapping("/login-force")
+    public ResponseEntity<?> loginForce(@Valid @RequestBody LoginRequestWithDevice req) {
+        User user = userRepository.findByEmail(req.email()).orElse(null);
+
+        if (user == null || user.getPasswordHash() == null ||
+                !passwordEncoder.matches(req.password(), user.getPasswordHash())) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(Map.of("error", "Invalid email or password"));
+        }
+
+        // Deliberately overwrite the existing session — this is the explicit override
+        return ResponseEntity.ok(buildAuthResponse(user, req.deviceName()));
     }
 
     @PostMapping("/refresh")
@@ -81,14 +105,12 @@ public class AuthController {
         String refreshToken = body.get("refreshToken");
 
         if (refreshToken == null || !jwtService.isTokenValid(refreshToken)) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                    .body(Map.of("error", "Invalid or expired refresh token"));
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", "Invalid or expired refresh token"));
         }
 
         Claims claims = jwtService.parseClaims(refreshToken);
         if (!"refresh".equals(claims.get("type"))) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                    .body(Map.of("error", "Invalid token type"));
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", "Invalid token type"));
         }
 
         UUID userId = UUID.fromString(claims.getSubject());
@@ -97,8 +119,23 @@ public class AuthController {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", "User not found"));
         }
 
-        return ResponseEntity.ok(buildAuthResponse(user));
+        String tokenSessionId = claims.get("sid", String.class);
+        if (tokenSessionId == null || !tokenSessionId.equals(user.getCurrentSessionId())) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(Map.of("error", "SESSION_INVALIDATED", "message", "Your account was signed in on another device."));
+        }
+
+        user.setCurrentSessionLastActive(OffsetDateTime.now());
+        userRepository.save(user);
+
+        String accessToken = jwtService.generateAccessToken(user.getId(), user.getEmail(), tokenSessionId);
+        String newRefreshToken = jwtService.generateRefreshToken(user.getId(), tokenSessionId);
+        return ResponseEntity.ok(new AuthResponse(accessToken, newRefreshToken, user.getEmail(), user.getFullName(), user.isPremium()));
     }
+
+
+    	
+
 
     @PostMapping("/forgot-password")
     public ResponseEntity<?> forgotPassword(@RequestBody ForgotPasswordRequest req) {
@@ -163,9 +200,15 @@ public class AuthController {
         return String.valueOf(otp);
     }
     
-    private AuthResponse buildAuthResponse(User user) {
-        String accessToken = jwtService.generateAccessToken(user.getId(), user.getEmail());
-        String refreshToken = jwtService.generateRefreshToken(user.getId());
+    private AuthResponse buildAuthResponse(User user, String deviceName) {
+        String sessionId = java.util.UUID.randomUUID().toString();
+        user.setCurrentSessionId(sessionId);
+        user.setCurrentSessionDevice(deviceName != null ? deviceName : "Unknown device");
+        user.setCurrentSessionLastActive(OffsetDateTime.now());
+        userRepository.save(user);
+
+        String accessToken = jwtService.generateAccessToken(user.getId(), user.getEmail(), sessionId);
+        String refreshToken = jwtService.generateRefreshToken(user.getId(), sessionId);
         return new AuthResponse(accessToken, refreshToken, user.getEmail(), user.getFullName(), user.isPremium());
     }
     

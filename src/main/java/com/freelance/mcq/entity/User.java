@@ -52,6 +52,16 @@ public class User {
     
     public enum Role { USER, ADMIN,SUPER_ADMIN }
     
+    @Column(name = "current_session_id")
+    private String currentSessionId;
+
+    @Column(name = "current_session_device")
+    private String currentSessionDevice;
+
+    @Column(name = "current_session_last_active")
+    private OffsetDateTime currentSessionLastActive;
+    
+    
     
     public User() {
     }
@@ -116,7 +126,14 @@ public class User {
     public void setResetOtpHash(String resetOtpHash) { this.resetOtpHash = resetOtpHash; }
     public OffsetDateTime getResetOtpExpiresAt() { return resetOtpExpiresAt; }
     public void setResetOtpExpiresAt(OffsetDateTime resetOtpExpiresAt) { this.resetOtpExpiresAt = resetOtpExpiresAt; }
-
+    public String getCurrentSessionId() { return currentSessionId; }
+    public void setCurrentSessionId(String currentSessionId) { this.currentSessionId = currentSessionId; }
+    public String getCurrentSessionDevice() { return currentSessionDevice; }
+    public void setCurrentSessionDevice(String currentSessionDevice) { this.currentSessionDevice = currentSessionDevice; }
+    public OffsetDateTime getCurrentSessionLastActive() { return currentSessionLastActive; }
+    public void setCurrentSessionLastActive(OffsetDateTime currentSessionLastActive) { this.currentSessionLastActive = currentSessionLastActive; }
+    
+    
 	public OffsetDateTime getPremiumExpiresAt() {
 		return premiumExpiresAt;
 	}

@@ -1,28 +1,37 @@
 package com.freelance.mcq.controller;
 
 
+import java.security.SecureRandom;
+import java.time.Duration;
+import java.time.OffsetDateTime;
+import java.util.Map;
+import java.util.UUID;
+
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
 import com.freelance.mcq.dto.AuthResponse;
 import com.freelance.mcq.dto.ForgotPasswordRequest;
-import com.freelance.mcq.dto.LoginRequest;
 import com.freelance.mcq.dto.LoginRequestWithDevice;
 import com.freelance.mcq.dto.RegisterRequest;
 import com.freelance.mcq.dto.ResetPasswordRequest;
+import com.freelance.mcq.dto.VerifyOtpRequest;
 import com.freelance.mcq.entity.User;
 import com.freelance.mcq.repository.UserRepository;
 import com.freelance.mcq.security.JwtService;
 import com.freelance.mcq.service.EmailService;
+import com.freelance.mcq.service.RateLimitService;
 
 import io.jsonwebtoken.Claims;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
-import org.springframework.security.crypto.password.PasswordEncoder;
-import org.springframework.web.bind.annotation.*;
-
-import java.time.OffsetDateTime;
-import java.util.Map;
-import java.util.UUID;
-import java.security.SecureRandom;
 
 @RestController
 @RequestMapping("/api/auth")
@@ -32,17 +41,25 @@ public class AuthController {
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
     private final EmailService emailService;
+    private final RateLimitService rateLimitService;
     
-    public AuthController(UserRepository userRepository, PasswordEncoder passwordEncoder, JwtService jwtService,EmailService emailService) {
+    public AuthController(UserRepository userRepository, PasswordEncoder passwordEncoder, JwtService jwtService,EmailService emailService,RateLimitService rateLimitService) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.jwtService = jwtService;
         this.emailService=emailService;
+        this.rateLimitService=rateLimitService;
     }
 
     @PostMapping("/register")
-    public ResponseEntity<?> register(@Valid @RequestBody RegisterRequest req) {
-        if (userRepository.findByEmail(req.email()).isPresent()) {
+    public ResponseEntity<?> register(@Valid @RequestBody RegisterRequest req,HttpServletRequest request) {
+        
+    	if (!rateLimitService.allowRegister(getClientIp(request))) {
+            return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                    .body(Map.of("error", "Too many login attempts. Please try again in a few minutes."));
+        }
+    	
+    	if (userRepository.findByEmail(req.email()).isPresent()) {
             return ResponseEntity.status(HttpStatus.CONFLICT)
                     .body(Map.of("error", "Email already registered"));
         }
@@ -65,15 +82,60 @@ public class AuthController {
     }
 
     @PostMapping("/login")
-    public ResponseEntity<?> login(@Valid @RequestBody LoginRequestWithDevice req) {
+    public ResponseEntity<?> login(@Valid @RequestBody LoginRequestWithDevice req,HttpServletRequest request) {
+    	if (!rateLimitService.allowLogin(getClientIp(request))) {
+            return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                    .body(Map.of("error", "Too many login attempts. Please try again in a few minutes."));
+        }
         User user = userRepository.findByEmail(req.email()).orElse(null);
 
+        if (user != null && user.isCurrentlyLocked()) {
+            long minutesLeft = java.time.Duration.between(OffsetDateTime.now(), user.getLockedUntil()).toMinutes() + 1;
+            
+            return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body(Map.of(
+                    "error", "ACCOUNT_LOCKED",
+                    "message", "Too many failed attempts. Try again in " + minutesLeft + " minute(s)."
+            ));
+        }
+        
+        
         if (user == null || user.getPasswordHash() == null ||
                 !passwordEncoder.matches(req.password(), user.getPasswordHash())) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+        	if (user != null) {
+                handleFailedLogin(user);
+            }
+        	return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .body(Map.of("error", "Invalid email or password"));
         }
 
+        
+        if (user.getFailedLoginAttempts() > 0) {
+        	user.setFailedLoginAttempts(0);
+            userRepository.save(user);
+        }
+        
+     // Successful password verification passed the checks above.
+     // Now branch: admin-tier accounts need a second factor before real tokens are issued.
+     if (user.getRole() == User.Role.ADMIN || user.getRole() == User.Role.SUPER_ADMIN) {
+         String otp = generateOtp(); // reuses the same method already built for forgot-password
+         user.setResetOtpHash(passwordEncoder.encode(otp)); // reusing the same OTP storage fields
+         user.setResetOtpExpiresAt(OffsetDateTime.now().plusMinutes(10));
+         userRepository.save(user);
+
+         try {
+             emailService.sendOtpEmail(user.getEmail(), otp);
+         } catch (Exception e) {
+             System.err.println("Failed to send 2FA OTP email: " + e.getMessage());
+         }
+
+         return ResponseEntity.ok(Map.of(
+                 "requires2FA", true,
+                 "email", user.getEmail()
+         ));
+     }
+
+
+        
         if (user.getCurrentSessionId() != null) {
             return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
                     "error", "ALREADY_LOGGED_IN",
@@ -138,7 +200,11 @@ public class AuthController {
 
 
     @PostMapping("/forgot-password")
-    public ResponseEntity<?> forgotPassword(@RequestBody ForgotPasswordRequest req) {
+    public ResponseEntity<?> forgotPassword(@RequestBody ForgotPasswordRequest req,HttpServletRequest request) {
+    	if (!rateLimitService.allowForgotPassword(getClientIp(request))) {
+            return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                    .body(Map.of("error", "Too many requests. Please try again later."));
+        }
         User user = userRepository.findByEmail(req.email()).orElse(null);
 
         // Always return the same generic message, whether or not the email exists —
@@ -147,12 +213,13 @@ public class AuthController {
             String otp = generateOtp();
             user.setResetOtpHash(passwordEncoder.encode(otp));
             user.setResetOtpExpiresAt(OffsetDateTime.now().plusMinutes(10));
+            user.setOtpAttempts(0);
             userRepository.save(user);
 
             try {
                 emailService.sendOtpEmail(user.getEmail(), otp);
             } catch (Exception e) {
-                // Log it, but still return success to the client — don't leak email-sending failures
+                
                 System.err.println("Failed to send OTP email: " + e.getMessage());
             }
         }
@@ -161,7 +228,13 @@ public class AuthController {
     }
     
     @PostMapping("/reset-password")
-    public ResponseEntity<?> resetPassword(@RequestBody ResetPasswordRequest req) {
+    	
+    public ResponseEntity<?> resetPassword(@RequestBody ResetPasswordRequest req,HttpServletRequest request) {
+    	if (!rateLimitService.allowResetPassword(getClientIp(request))) {
+            return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                    .body(Map.of("error", "Too many attempts. Please try again in a few minutes."));
+        }
+    	
         User user = userRepository.findByEmail(req.email()).orElse(null);
 
         if (user == null || user.getResetOtpHash() == null || user.getResetOtpExpiresAt() == null) {
@@ -172,6 +245,17 @@ public class AuthController {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("error", "Reset code has expired"));
         }
 
+        
+        if (user.getOtpAttempts() >= 5) {
+            user.setResetOtpHash(null);
+            user.setResetOtpExpiresAt(null);
+            user.setOtpAttempts(0);
+            userRepository.save(user);
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(Map.of("error", "Too many incorrect attempts. Please request a new code."));
+        }
+        
+        
         if (!passwordEncoder.matches(req.otp(), user.getResetOtpHash())) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("error", "Invalid reset code"));
         }
@@ -194,6 +278,76 @@ public class AuthController {
         return ResponseEntity.ok(Map.of("message", "Password reset successfully"));
     }
 
+    
+    @PostMapping("/verify-2fa")
+    public ResponseEntity<?> verify2FA(@RequestBody VerifyOtpRequest req, HttpServletRequest request) {
+        if (!rateLimitService.allowResetPassword(getClientIp(request))) { // reuse the same limiter — same abuse pattern (OTP brute-force)
+            return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                    .body(Map.of("error", "Too many attempts. Please try again in a few minutes."));
+        }
+
+        User user = userRepository.findByEmail(req.email()).orElse(null);
+
+        if (user == null || user.getResetOtpHash() == null || user.getResetOtpExpiresAt() == null) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("error", "Invalid or expired code"));
+        }
+
+        if (user.getResetOtpExpiresAt().isBefore(OffsetDateTime.now())) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("error", "Code has expired"));
+        }
+
+        
+        if (user.getOtpAttempts() >= 5) {
+            user.setResetOtpHash(null);
+            user.setResetOtpExpiresAt(null);
+            user.setOtpAttempts(0);
+            userRepository.save(user);
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("error", "Too many incorrect attempts. Please log in again to receive a new code."));
+        }
+        
+        
+        
+        if (!passwordEncoder.matches(req.otp(), user.getResetOtpHash())) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("error", "Invalid code"));
+        }
+
+        // OTP correct — clear it (single-use) and complete login properly
+        user.setResetOtpHash(null);
+        user.setResetOtpExpiresAt(null);
+        user.setOtpAttempts(0);
+        userRepository.save(user);
+
+        if (user.getCurrentSessionId() != null) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
+                    "error", "ALREADY_LOGGED_IN",
+                    "message", "This account is already signed in on another device.",
+                    "deviceName", user.getCurrentSessionDevice() != null ? user.getCurrentSessionDevice() : "Unknown device",
+                    "lastActive", user.getCurrentSessionLastActive() != null ? user.getCurrentSessionLastActive().toString() : null
+            ));
+        }
+
+        return ResponseEntity.ok(buildAuthResponse(user, req.deviceName()));
+    }
+    
+    
+    @PostMapping("/logout")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<?> logout(Authentication auth) {
+        User user = (User) auth.getPrincipal();
+        User freshUser = userRepository.findById(user.getId()).orElseThrow();
+        freshUser.setCurrentSessionId(null);
+        freshUser.setCurrentSessionDevice(null);
+        freshUser.setCurrentSessionLastActive(null);
+        userRepository.save(freshUser);
+        return ResponseEntity.ok(Map.of("message", "Logged out"));
+    }
+    
+    
+    
+    
+    
+    
+    
     private String generateOtp() {
         SecureRandom random = new SecureRandom();
         int otp = 100000 + random.nextInt(900000); // always 6 digits, 100000-999999
@@ -224,6 +378,38 @@ public class AuthController {
         }
         return null; // null means valid
     }
+    
+    
+    private String getClientIp(HttpServletRequest request) {
+        String forwarded = request.getHeader("X-Forwarded-For");
+        if (forwarded != null && !forwarded.isBlank()) {
+            return forwarded.split(",")[0].trim();
+        }
+        return request.getRemoteAddr();
+    }
+    
+    private void handleFailedLogin(User user) {
+        int attempts = user.getFailedLoginAttempts() + 1;
+        user.setFailedLoginAttempts(attempts);
+
+        if (attempts >= 5) {
+            int lockoutCount = user.getLockoutCount() + 1;
+            user.setLockoutCount(lockoutCount);
+
+            Duration lockDuration = switch (Math.min(lockoutCount, 3)) {
+                case 1 -> Duration.ofMinutes(15);
+                case 2 -> Duration.ofHours(1);
+                default -> Duration.ofHours(24);
+            };
+
+            user.setLockedUntil(OffsetDateTime.now().plus(lockDuration));
+            user.setFailedLoginAttempts(0); // reset counter, lockout itself is now the active deterrent
+        }
+
+        userRepository.save(user);
+    }
+    
+    
     
     
 }

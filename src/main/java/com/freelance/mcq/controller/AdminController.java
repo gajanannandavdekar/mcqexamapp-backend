@@ -4,9 +4,12 @@ import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 //Add these imports:
 import org.apache.commons.csv.CSVFormat;
@@ -186,9 +189,28 @@ public class AdminController {
         if (test == null) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "Test not found"));
         }
+        
+        long maxFileSizeBytes = 2 * 1024 * 1024;
+        if (file.getSize() > maxFileSizeBytes) {
+            return ResponseEntity.status(HttpStatus.PAYLOAD_TOO_LARGE).body(Map.of(
+                    "error", "File is too large (" + (file.getSize() / 1024) + " KB). Maximum allowed: 2048 KB."
+            ));
+        }
+
+        if (file.isEmpty()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Uploaded file is empty"));
+        }
 
         List<Map<String, Object>> errors = new ArrayList<>();
         List<Question> toSave = new ArrayList<>();
+
+        // Existing questions in this test — for duplicate detection against already-uploaded content
+        Set<String> existingQuestionTexts = questionRepository.findByTestId(test.getId()).stream()
+                .map(q -> normalize(q.getText()))
+                .collect(Collectors.toSet());
+
+        // Texts seen so far within THIS file — for duplicate detection within the same upload
+        Set<String> seenInFileTexts = new HashSet<>();
 
         try (var reader = new InputStreamReader(file.getInputStream(), StandardCharsets.UTF_8)) {
             CSVParser parser = CSVFormat.DEFAULT.builder()
@@ -198,34 +220,110 @@ public class AdminController {
                     .build()
                     .parse(reader);
 
+            Set<String> requiredHeaders = Set.of("text", "option1", "option2", "option3", "option4", "correctOptionIndex");
+            Set<String> actualHeaders = parser.getHeaderNames().stream()
+                    .map(String::trim)
+                    .filter(h -> !h.isEmpty())
+                    .collect(Collectors.toSet());
+
+            if (!actualHeaders.containsAll(requiredHeaders)) {
+                return ResponseEntity.badRequest().body(Map.of(
+                        "error", "CSV is missing required columns. Required: " + requiredHeaders + ". Found: " + actualHeaders
+                ));
+            }
+
+            int maxRows = 2000;
             int rowNum = 1;
             for (CSVRecord record : parser) {
                 rowNum++;
                 try {
+                	
+                	if (rowNum > maxRows) {
+                        errors.add(Map.of("row", rowNum, "error", "Row limit exceeded (max " + maxRows + " questions per upload) — remaining rows were not processed"));
+                        break;
+                    }
+                	
                     String text = record.get("text");
                     List<String> options = List.of(
-                            record.get("option1"),
-                            record.get("option2"),
-                            record.get("option3"),
-                            record.get("option4")
+                            record.get("option1"), record.get("option2"),
+                            record.get("option3"), record.get("option4")
                     );
-                    int correctOptionIndex = Integer.parseInt(record.get("correctOptionIndex").trim());
+
+                    int correctOptionIndex;
+                    try {
+                        correctOptionIndex = Integer.parseInt(record.get("correctOptionIndex").trim());
+                    } catch (NumberFormatException nfe) {
+                        errors.add(Map.of("row", rowNum, "error", "correctOptionIndex must be a number"));
+                        continue;
+                    }
+
                     String explanation = record.isMapped("explanation") ? record.get("explanation") : null;
-                    String difficulty = record.isMapped("difficulty") && !record.get("difficulty").isBlank()
-                            ? record.get("difficulty") : "medium";
+
+                    // CHECK 5: difficulty validated explicitly, not left to a raw DB constraint failure
+                    String rawDifficulty = record.isMapped("difficulty") ? record.get("difficulty") : null;
+                    String difficulty;
+                    if (rawDifficulty == null || rawDifficulty.isBlank()) {
+                        difficulty = "medium";
+                    } else {
+                        String normalizedDifficulty = rawDifficulty.trim().toLowerCase();
+                        if (!Set.of("easy", "medium", "hard").contains(normalizedDifficulty)) {
+                            errors.add(Map.of("row", rowNum, "error",
+                                    "Invalid difficulty '" + rawDifficulty + "' — must be easy, medium, or hard"));
+                            continue;
+                        }
+                        difficulty = normalizedDifficulty;
+                    }
+
                     String topic = record.isMapped("topic") && !record.get("topic").isBlank()
                             ? record.get("topic") : "General";
 
-                    if (text == null || text.isBlank()) {
-                        errors.add(Map.of("row", rowNum, "error", "Missing question text"));
+                    // CHECK 3a: text present and not trivially short
+                    if (text == null || text.trim().length() < 5) {
+                        errors.add(Map.of("row", rowNum, "error", "Question text is missing or too short (minimum 5 characters)"));
                         continue;
                     }
+
                     if (correctOptionIndex < 0 || correctOptionIndex > 3) {
                         errors.add(Map.of("row", rowNum, "error", "correctOptionIndex must be 0-3"));
                         continue;
                     }
 
-                    toSave.add(new Question(test, text, options, correctOptionIndex, explanation, difficulty, topic));
+                    // CHECK 3b: no blank options
+                    if (options.stream().anyMatch(o -> o == null || o.trim().isEmpty())) {
+                        errors.add(Map.of("row", rowNum, "error", "One or more options are empty"));
+                        continue;
+                    }
+
+                    // CHECK 2: duplicate options within the same question
+                    Set<String> normalizedOptions = options.stream().map(this::normalize).collect(Collectors.toSet());
+                    if (normalizedOptions.size() < options.size()) {
+                        errors.add(Map.of("row", rowNum, "error", "Two or more options are identical"));
+                        continue;
+                    }
+
+                    // CHECK 4: encoding/corruption detection
+                    String combined = text + String.join("", options) + (explanation != null ? explanation : "");
+                    if (combined.indexOf('\uFFFD') >= 0) {
+                        errors.add(Map.of("row", rowNum, "error", "Contains invalid characters — check the file is saved as UTF-8"));
+                        continue;
+                    }
+
+                    String normalizedText = normalize(text);
+
+                    // CHECK 1a: duplicate within this file
+                    if (seenInFileTexts.contains(normalizedText)) {
+                        errors.add(Map.of("row", rowNum, "error", "Duplicate question within this file"));
+                        continue;
+                    }
+
+                    // CHECK 1b: duplicate against what's already in this test
+                    if (existingQuestionTexts.contains(normalizedText)) {
+                        errors.add(Map.of("row", rowNum, "error", "This question already exists in this test"));
+                        continue;
+                    }
+
+                    seenInFileTexts.add(normalizedText);
+                    toSave.add(new Question(test, text.trim(), options, correctOptionIndex, explanation, difficulty, topic));
                 } catch (Exception rowEx) {
                     errors.add(Map.of("row", rowNum, "error", "Malformed row: " + rowEx.getMessage()));
                 }
@@ -235,17 +333,16 @@ public class AdminController {
         }
 
         questionRepository.saveAll(toSave);
-
         test.setQuestionsCount(questionRepository.findByTestId(test.getId()).size());
         mockTestRepository.save(test);
 
-        return ResponseEntity.status(HttpStatus.CREATED).body(Map.of(
-                "added", toSave.size(),
-                "errors", errors
-        ));
+        return ResponseEntity.status(HttpStatus.CREATED).body(Map.of("added", toSave.size(), "errors", errors));
     }
-    
-    
+
+    private String normalize(String s) {
+        if (s == null) return "";
+        return s.trim().toLowerCase().replaceAll("\\s+", " ");
+    }
     
 
 

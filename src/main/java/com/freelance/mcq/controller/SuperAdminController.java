@@ -1,8 +1,12 @@
 package com.freelance.mcq.controller;
 
+import com.freelance.mcq.dto.CreatePlanRequest;
+import com.freelance.mcq.dto.UpdatePlanRequest;
 import com.freelance.mcq.entity.AdminActionLog;
+import com.freelance.mcq.entity.PremiumPlan;
 import com.freelance.mcq.entity.User;
 import com.freelance.mcq.repository.AdminActionLogRepository;
+import com.freelance.mcq.repository.PremiumPlanRepository;
 import com.freelance.mcq.repository.UserRepository;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -21,10 +25,12 @@ public class SuperAdminController {
 
     private final UserRepository userRepository;
     private final AdminActionLogRepository adminActionLogRepository;
+    private final PremiumPlanRepository premiumPlanRepository;
 
-    public SuperAdminController(UserRepository userRepository,AdminActionLogRepository adminActionLogRepository) {
+    public SuperAdminController(UserRepository userRepository,AdminActionLogRepository adminActionLogRepository,PremiumPlanRepository premiumPlanRepository) {
         this.userRepository = userRepository;
         this.adminActionLogRepository=adminActionLogRepository;
+        this.premiumPlanRepository=premiumPlanRepository;
     }
 
 
@@ -90,7 +96,62 @@ public class SuperAdminController {
     }
     
     
-    
+ // Add field + constructor param: premiumPlanRepository
+
+    @GetMapping("/premium-plans")
+    public List<Map<String, Object>> listAllPlans() {
+        return premiumPlanRepository.findAll().stream()
+                .map(p -> {
+                    Map<String, Object> m = new java.util.LinkedHashMap<>();
+                    m.put("id", p.getId());
+                    m.put("planKey", p.getPlanKey());
+                    m.put("title", p.getTitle());
+                    m.put("durationDays", p.getDurationDays());
+                    m.put("priceInPaise", p.getPriceInPaise());
+                    m.put("isActive", p.isActive());
+                    return m;
+                })
+                .toList();
+    }
+
+    @PostMapping("/premium-plans")
+    public ResponseEntity<?> createPlan(@RequestBody CreatePlanRequest req) {
+        if (premiumPlanRepository.findAll().stream().anyMatch(p -> p.getPlanKey().equals(req.planKey()))) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "planKey already exists"));
+        }
+        if (req.durationDays() <= 0 || req.priceInPaise() <= 0) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("error", "Duration and price must be positive"));
+        }
+
+        PremiumPlan plan = new PremiumPlan();
+        plan.setPlanKey(req.planKey());
+        plan.setTitle(req.title());
+        plan.setDurationDays(req.durationDays());
+        plan.setPriceInPaise(req.priceInPaise());
+        plan.setActive(true);
+        premiumPlanRepository.save(plan);
+
+        return ResponseEntity.status(HttpStatus.CREATED).body(Map.of("id", plan.getId()));
+    }
+
+    @PutMapping("/premium-plans/{planId}")
+    public ResponseEntity<?> updatePlan(@PathVariable UUID planId, @RequestBody UpdatePlanRequest req) {
+        PremiumPlan plan = premiumPlanRepository.findById(planId).orElse(null);
+        if (plan == null) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "Plan not found"));
+        }
+        if (req.durationDays() <= 0 || req.priceInPaise() <= 0) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("error", "Duration and price must be positive"));
+        }
+
+        plan.setTitle(req.title());
+        plan.setDurationDays(req.durationDays());
+        plan.setPriceInPaise(req.priceInPaise());
+        plan.setActive(req.isActive());
+        premiumPlanRepository.save(plan);
+
+        return ResponseEntity.ok(Map.of("message", "Plan updated"));
+    }
     
     
 }

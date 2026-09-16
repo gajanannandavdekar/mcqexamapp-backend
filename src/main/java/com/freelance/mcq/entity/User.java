@@ -61,6 +61,19 @@ public class User {
     @Column(name = "current_session_last_active")
     private OffsetDateTime currentSessionLastActive;
     
+    @Column(name = "failed_login_attempts", nullable = false)
+    private int failedLoginAttempts = 0;
+
+    @Column(name = "locked_until")
+    private OffsetDateTime lockedUntil;
+
+    @Column(name = "lockout_count", nullable = false)
+    private int lockoutCount = 0;
+
+    
+    @Column(name = "otp_attempts", nullable = false)
+    private int otpAttempts = 0;
+
     
     
     public User() {
@@ -132,6 +145,20 @@ public class User {
     public void setCurrentSessionDevice(String currentSessionDevice) { this.currentSessionDevice = currentSessionDevice; }
     public OffsetDateTime getCurrentSessionLastActive() { return currentSessionLastActive; }
     public void setCurrentSessionLastActive(OffsetDateTime currentSessionLastActive) { this.currentSessionLastActive = currentSessionLastActive; }
+    public int getFailedLoginAttempts() { return failedLoginAttempts; }
+    public void setFailedLoginAttempts(int failedLoginAttempts) { this.failedLoginAttempts = failedLoginAttempts; }
+    public OffsetDateTime getLockedUntil() { return lockedUntil; }
+    public void setLockedUntil(OffsetDateTime lockedUntil) { this.lockedUntil = lockedUntil; }
+    public int getLockoutCount() { return lockoutCount; }
+    public void setLockoutCount(int lockoutCount) { this.lockoutCount = lockoutCount; }
+    public int getOtpAttempts() { return otpAttempts; }
+    public void setOtpAttempts(int otpAttempts) { this.otpAttempts = otpAttempts; }
+    
+    
+    
+    public boolean isCurrentlyLocked() {
+        return lockedUntil != null && lockedUntil.isAfter(OffsetDateTime.now());
+    }
     
     
 	public OffsetDateTime getPremiumExpiresAt() {
@@ -150,6 +177,8 @@ public class User {
 		this.updatedAt = updatedAt;
 	}
     
+	
+	
     
     
 }

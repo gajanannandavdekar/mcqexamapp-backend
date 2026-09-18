@@ -25,6 +25,7 @@ public class TestController {
         this.mockTestRepository = mockTestRepository;
         this.questionRepository = questionRepository;
     }
+    
     @GetMapping("/{testKey}/questions")
     @PreAuthorize("isAuthenticated()")
     public ResponseEntity<?> getQuestions(@PathVariable String testKey) {
@@ -33,7 +34,23 @@ public class TestController {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "Test not found"));
         }
 
-        if (test.isPremium()) {
+        boolean isAdmin = SecurityContextHolder.getContext().getAuthentication()
+                .getAuthorities().stream()
+                .anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN") || a.getAuthority().equals("ROLE_SUPER_ADMIN"));
+
+        if (!isAdmin && test.isLiveTest()) {
+            String status = test.getLiveStatus();
+            if (!"ACTIVE".equals(status)) {
+                return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
+                        "error", status.equals("UPCOMING") ? "This test hasn't started yet" : "This test has ended",
+                        "liveStatus", status,
+                        "scheduledStartAt", test.getScheduledStartAt() != null ? test.getScheduledStartAt().toString() : null,
+                        "scheduledEndAt", test.getScheduledEndAt() != null ? test.getScheduledEndAt().toString() : null
+                ));
+            }
+        }
+
+        if (!isAdmin && test.isPremium()) {
             boolean isPremiumUser = SecurityContextHolder.getContext().getAuthentication()
                     .getAuthorities().stream()
                     .anyMatch(a -> a.getAuthority().equals("ROLE_PREMIUM"));
@@ -48,6 +65,11 @@ public class TestController {
                 .map(q -> new QuestionResponse(q.getId(), q.getText(), q.getOptions(), q.getDifficulty(), q.getTopic()))
                 .toList();
 
-        return ResponseEntity.ok(questions);
+        Map<String, Object> response = new java.util.LinkedHashMap<>();
+        response.put("questions", questions);
+        response.put("isLiveTest", test.isLiveTest());
+        response.put("scheduledEndAt", test.getScheduledEndAt() != null ? test.getScheduledEndAt().toString() : null);
+
+        return ResponseEntity.ok(response);
     }
 }

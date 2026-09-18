@@ -43,6 +43,16 @@ public class MockTest {
     @Column(name = "is_published", nullable = false)
     private boolean isPublished = false;
     
+    @Column(name = "is_live_test", nullable = false)
+    private boolean isLiveTest = false;
+
+    @Column(name = "scheduled_start_at")
+    private OffsetDateTime scheduledStartAt;
+
+    @Column(name = "scheduled_end_at")
+    private OffsetDateTime scheduledEndAt;
+    
+    
     public MockTest() {
     }
 
@@ -77,5 +87,19 @@ public class MockTest {
     public OffsetDateTime getCreatedAt() { return createdAt; }
     public boolean isPublished() { return isPublished; }
     public void setPublished(boolean published) { isPublished = published; }
+    public boolean isLiveTest() { return isLiveTest; }
+    public void setLiveTest(boolean liveTest) { isLiveTest = liveTest; }
+    public OffsetDateTime getScheduledStartAt() { return scheduledStartAt; }
+    public void setScheduledStartAt(OffsetDateTime scheduledStartAt) { this.scheduledStartAt = scheduledStartAt; }
+    public OffsetDateTime getScheduledEndAt() { return scheduledEndAt; }
+    public void setScheduledEndAt(OffsetDateTime scheduledEndAt) { this.scheduledEndAt = scheduledEndAt; }
+
+    public String getLiveStatus() {
+        if (!isLiveTest) return "NOT_LIVE";
+        OffsetDateTime now = OffsetDateTime.now();
+        if (scheduledStartAt != null && now.isBefore(scheduledStartAt)) return "UPCOMING";
+        if (scheduledEndAt != null && now.isAfter(scheduledEndAt)) return "ENDED";
+        return "ACTIVE";
+    }
     
 }

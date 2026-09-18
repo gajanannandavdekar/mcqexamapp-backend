@@ -78,7 +78,7 @@ public class AuthController {
 
         userRepository.save(user);
 
-        return ResponseEntity.ok(buildAuthResponse(user,req.deviceName()));
+        return ResponseEntity.ok(Map.of("message", "Registration successful. Please log in."));
     }
 
     @PostMapping("/login")
@@ -123,6 +123,7 @@ public class AuthController {
          userRepository.save(user);
 
          try {
+        	 System.out.println( "email"+user.getEmail()+  "otp "+otp);
              emailService.sendOtpEmail(user.getEmail(), otp);
          } catch (Exception e) {
              System.err.println("Failed to send 2FA OTP email: " + e.getMessage());

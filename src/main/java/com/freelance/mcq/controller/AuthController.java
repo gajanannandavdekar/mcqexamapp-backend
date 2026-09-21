@@ -64,6 +64,10 @@ public class AuthController {
                     .body(Map.of("error", "Email already registered"));
         }
 
+    	if (userRepository.findByMobileNumber(req.mobileNumber()).isPresent()) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "Mobile number already registered"));
+        }
+    	
         String strengthError = validatePasswordStrength(req.password());
         if (strengthError != null) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("error", strengthError));
@@ -76,6 +80,7 @@ public class AuthController {
                 User.AuthProvider.LOCAL
         );
 
+        user.setMobileNumber(req.mobileNumber());
         userRepository.save(user);
 
         return ResponseEntity.ok(Map.of("message", "Registration successful. Please log in."));

@@ -74,6 +74,10 @@ public class User {
     @Column(name = "otp_attempts", nullable = false)
     private int otpAttempts = 0;
 
+    @Column(name = "mobile_number", unique = true)
+    private String mobileNumber;
+
+   
     
     
     public User() {
@@ -153,7 +157,9 @@ public class User {
     public void setLockoutCount(int lockoutCount) { this.lockoutCount = lockoutCount; }
     public int getOtpAttempts() { return otpAttempts; }
     public void setOtpAttempts(int otpAttempts) { this.otpAttempts = otpAttempts; }
-    
+
+	 public String getMobileNumber() { return mobileNumber; }
+	    public void setMobileNumber(String mobileNumber) { this.mobileNumber = mobileNumber; }
     
     
     public boolean isCurrentlyLocked() {
@@ -177,6 +183,7 @@ public class User {
 		this.updatedAt = updatedAt;
 	}
     
+	
 	
 	
     

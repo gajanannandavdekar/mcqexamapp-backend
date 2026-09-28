@@ -323,13 +323,10 @@ public class AuthController {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("error", "Invalid code"));
         }
 
-        // OTP correct — clear it (single-use) and complete login properly
-        user.setResetOtpHash(null);
-        user.setResetOtpExpiresAt(null);
-        user.setOtpAttempts(0);
-        userRepository.save(user);
 
-        if (user.getCurrentSessionId() != null && !req.force()) {
+        boolean force = Boolean.TRUE.equals(req.force());
+        
+        if (user.getCurrentSessionId() != null && !force) {
             return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
                     "error", "ALREADY_LOGGED_IN",
                     "message", "This account is already signed in on another device.",
@@ -337,7 +334,9 @@ public class AuthController {
                     "lastActive", user.getCurrentSessionLastActive() != null ? user.getCurrentSessionLastActive().toString() : null
             ));
         }
+
         
+     // OTP correct and session check passed: consume the OTP now
         user.setResetOtpHash(null);
         user.setResetOtpExpiresAt(null);
         user.setOtpAttempts(0);

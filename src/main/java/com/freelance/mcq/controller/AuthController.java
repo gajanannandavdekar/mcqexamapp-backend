@@ -163,6 +163,12 @@ public class AuthController {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .body(Map.of("error", "Invalid email or password"));
         }
+        
+        if (user.getRole() == User.Role.ADMIN || user.getRole() == User.Role.SUPER_ADMIN) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body(Map.of("error", "Admin accounts must sign in with two-factor verification."));
+        }
+        
 
         // Deliberately overwrite the existing session — this is the explicit override
         return ResponseEntity.ok(buildAuthResponse(user, req.deviceName()));
@@ -323,7 +329,7 @@ public class AuthController {
         user.setOtpAttempts(0);
         userRepository.save(user);
 
-        if (user.getCurrentSessionId() != null) {
+        if (user.getCurrentSessionId() != null && !req.force()) {
             return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
                     "error", "ALREADY_LOGGED_IN",
                     "message", "This account is already signed in on another device.",
@@ -331,7 +337,11 @@ public class AuthController {
                     "lastActive", user.getCurrentSessionLastActive() != null ? user.getCurrentSessionLastActive().toString() : null
             ));
         }
-
+        
+        user.setResetOtpHash(null);
+        user.setResetOtpExpiresAt(null);
+        user.setOtpAttempts(0);
+        userRepository.save(user);       
         return ResponseEntity.ok(buildAuthResponse(user, req.deviceName()));
     }
     

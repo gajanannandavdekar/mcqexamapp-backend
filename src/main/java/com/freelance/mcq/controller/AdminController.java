@@ -109,11 +109,12 @@ public class AdminController {
         return ResponseEntity.noContent().build();
     }
 
-    // ---------- TESTS ----------
-
     @PostMapping("/tests")
     public ResponseEntity<?> createTest(@RequestBody CreateTestRequest req) {
         Subject subject = subjectRepository.findBySubjectKey(req.subjectKey()).orElse(null);
+        
+        
+        
         if (subject == null) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "Subject not found"));
         }
@@ -122,6 +123,19 @@ public class AdminController {
         }
 
         MockTest test = new MockTest(subject, req.testKey(), req.title(), 0, req.durationMinutes(), req.isPremium());
+        test.setLiveTest(req.isLiveTest());
+        if (req.isLiveTest()) {
+        	
+        	
+            if (req.scheduledStartAt() != null && !req.scheduledStartAt().isBlank()) {
+                test.setScheduledStartAt(OffsetDateTime.parse(req.scheduledStartAt()));
+            }
+            if (req.scheduledEndAt() != null && !req.scheduledEndAt().isBlank()) {
+                test.setScheduledEndAt(OffsetDateTime.parse(req.scheduledEndAt()));
+            }
+        }
+        
+        System.out.println(test);
         mockTestRepository.save(test);
         return ResponseEntity.status(HttpStatus.CREATED).body(Map.of("id", test.getId(), "testKey", test.getTestKey()));
     }

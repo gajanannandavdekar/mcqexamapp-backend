@@ -25,18 +25,18 @@ public class RateLimitService {
 
     // Specific, named limits for each endpoint we care about
     public boolean allowLogin(String ip) {
-        return tryConsume("login:" + ip, 30, Duration.ofMinutes(15));
+        return tryConsume("login:" + ip, 300, Duration.ofMinutes(15));
     }
 
     public boolean allowForgotPassword(String ip) {
-        return tryConsume("forgot:" + ip, 3, Duration.ofHours(1));
+        return tryConsume("forgot:" + ip, 300, Duration.ofHours(1));
     }
 
     public boolean allowResetPassword(String ip) {
-        return tryConsume("reset:" + ip, 5, Duration.ofMinutes(15));
+        return tryConsume("reset:" + ip, 300, Duration.ofMinutes(15));
     }
 
     public boolean allowRegister(String ip) {
-        return tryConsume("register:" + ip, 3, Duration.ofHours(1));
+        return tryConsume("register:" + ip, 300, Duration.ofHours(1));
     }
 }

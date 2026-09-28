@@ -38,6 +38,8 @@ public class TestController {
                 .getAuthorities().stream()
                 .anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN") || a.getAuthority().equals("ROLE_SUPER_ADMIN"));
 
+        
+        
         if (!isAdmin && test.isLiveTest()) {
             String status = test.getLiveStatus();
             if (!"ACTIVE".equals(status)) {

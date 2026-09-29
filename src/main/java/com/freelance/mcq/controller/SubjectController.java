@@ -50,7 +50,12 @@ public class SubjectController {
 
         List<TestResponse> tests = mockTestRepository.findBySubjectId(subject.getId()).stream()
                 .filter(MockTest::isPublished)
-                .map(t -> new TestResponse(t.getId(), t.getTestKey(), t.getTitle(), t.getQuestionsCount(), t.getDurationMinutes(), t.isPremium()))
+                .map(t -> new TestResponse(
+                        t.getId(), t.getTestKey(), t.getTitle(), t.getQuestionsCount(), t.getDurationMinutes(), t.isPremium(),
+                        t.isLiveTest(), t.getLiveStatus(),
+                        t.getScheduledStartAt() != null ? t.getScheduledStartAt().toString() : null,
+                        t.getScheduledEndAt() != null ? t.getScheduledEndAt().toString() : null
+                ))
                 .toList();
 
         return ResponseEntity.ok(tests);

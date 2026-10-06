@@ -21,7 +21,7 @@ public class EmailService {
         String htmlBody = """
                 <div style="font-family: sans-serif; max-width: 480px; margin: 0 auto;">
                     <h2>Password Reset Code</h2>
-                    <p>Use this code to reset your MCQ Exam Prep password. It expires in 10 minutes.</p>
+                    <p>This is OTP for your MCQ Exam Prep. It expires in 10 minutes.</p>
                     <div style="font-size: 32px; font-weight: bold; letter-spacing: 8px; background: #F1F5F9; padding: 16px; text-align: center; border-radius: 8px; margin: 20px 0;">
                         %s
                     </div>

@@ -19,4 +19,7 @@ public interface MockTestRepository extends JpaRepository<MockTest, UUID> {
     @Query("SELECT t FROM MockTest t JOIN FETCH t.subject WHERE t.testKey = :testKey")
     Optional<MockTest> findByTestKeyWithSubject(@Param("testKey") String testKey);
     
+    @Query("SELECT t FROM MockTest t JOIN FETCH t.subject WHERE t.isLiveTest = true AND t.isPublished = true")
+    List<MockTest> findPublishedLiveTestsWithSubject();
+    
 }

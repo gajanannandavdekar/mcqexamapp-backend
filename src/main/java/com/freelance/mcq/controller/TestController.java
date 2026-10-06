@@ -11,6 +11,9 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.OffsetDateTime;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -74,4 +77,45 @@ public class TestController {
 
         return ResponseEntity.ok(response);
     }
+    
+    
+ 
+    @GetMapping("/live")
+    @PreAuthorize("isAuthenticated()")
+    public List<Map<String, Object>> getLiveTests() {
+        OffsetDateTime now = OffsetDateTime.now();
+        OffsetDateTime horizon = now.plusHours(24);
+
+        return mockTestRepository.findPublishedLiveTestsWithSubject().stream()
+                .filter(t -> {
+                    String status = t.getLiveStatus();
+                    if ("ACTIVE".equals(status)) return true;
+                    return "UPCOMING".equals(status)
+                            && t.getScheduledStartAt() != null
+                            && t.getScheduledStartAt().isBefore(horizon);
+                })
+                .sorted(Comparator.comparing((MockTest t) ->
+                        t.getScheduledStartAt() != null ? t.getScheduledStartAt() : now))
+                .map(t -> {
+                    Map<String, Object> m = new LinkedHashMap<>();
+                    m.put("testKey", t.getTestKey());
+                    m.put("title", t.getTitle());
+                    m.put("subjectKey", t.getSubject().getSubjectKey());
+                    m.put("subjectTitle", t.getSubject().getTitle());
+                    m.put("durationMinutes", t.getDurationMinutes());
+                    m.put("isPremium", t.isPremium());
+                    m.put("scheduledStartAt", t.getScheduledStartAt() != null ? t.getScheduledStartAt().toString() : null);
+                    m.put("scheduledEndAt", t.getScheduledEndAt() != null ? t.getScheduledEndAt().toString() : null);
+                    return m;
+                })
+                .toList();
+    }
+    
+    
+    
+    
+    
+    
+    
+    
 }
